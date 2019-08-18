@@ -19,7 +19,6 @@ import { Notification } from './models/notification';
 import { ProfileScoreRecord } from './models/profile-score-record';
 import { PostMapChannel } from './models/post-map-channel';
 import HablaErrorCodes from './errors/error-codes'
-import { InternalServerError } from './errors/internal-server-error'
 import { ProfileFollowPost } from './models/profile-follow-post';
 
 const accessLogStream = fs.createWriteStream(path.join(__dirname + '/static', '/access.log'), { flags: 'a' });
@@ -47,6 +46,8 @@ app.use(cors({
     optionsSuccessStatus: 200 // some legacy browsers (IE11, various SmartTVs) choke on 204
 }));
 
+app.use(express.static('./src/static'));
+
 const server = new ApolloServer({ 
     typeDefs: AppSchema.typeDefs, 
     resolvers: AppSchema.resolvers,
@@ -62,14 +63,14 @@ const server = new ApolloServer({
         return { location, user };
     },
     formatError: (err) => {
+        console.log(err);
         let codes = Object.keys(HablaErrorCodes).filter(key => (HablaErrorCodes[key]));
-        if (!codes.includes(err.extensions.code)){
-            throw new InternalServerError()
-        } else {
-            return { code: err.extensions.code, message: err.message };
-        }
-          
         
+        if (codes.includes(err.extensions.code) || err.extensions.code.startsWith("GRAPHQL")){
+            return { code: err.extensions.code, message: err.message };
+        } else {
+            return { code: HablaErrorCodes.INTERNAL_SERVER_ERROR, message: "Internal server error." };
+        }
     }
 });
 

@@ -1,13 +1,13 @@
 import { Profile } from "../models/profile";
 import { Post } from "../models/post";
-import { IsNull, Equal, Brackets, MoreThan } from "typeorm";
-import { InternalServerError } from "../errors/internal-server-error";
-import { NotFoundError } from "../errors/not-found-error";
+import { IsNull, Equal, MoreThan, Not } from "typeorm";
 import * as admin from 'firebase-admin';
 import { getPhotoDataWithBufferFromBase64 } from "../util/photo-upload-handler";
 import { requireLocationInfo } from "../util/context";
 import { ProfileScoreRecord } from "../models/profile-score-record";
 import { getConnection } from "typeorm";
+import { HablaError } from "../errors/habla-error";
+import HablaErrorCodes from "../errors/error-codes";
 
 export const ProfileTypeDef = `
   extend type Query {
@@ -58,14 +58,15 @@ export const ProfileResolvers = {
       if (profile) {
         return profile;
       } else {
-        throw new NotFoundError('Profile not found.');
+        throw new HablaError('No profile with the provided id was found.', HablaErrorCodes.NOT_FOUND_ERROR);
       }
     }
   },
   Profile: {
     posts: (profile: Profile) => {
-      return Post.find({ where: { owner: profile, deletedAt: IsNull() } });
+      return Post.find({ where: { owner: profile, deletedAt: IsNull() }, order: { createdAt: 'DESC' } });
     },
+    
     home: (profile: Profile) => {
       return profile.home && profile.home.coordinates;
     },
@@ -90,10 +91,14 @@ export const ProfileResolvers = {
     updateProfile: async (parent, args, context) => {
       let photoURL;
       let location;
+
       if (args.updateHome) {
         requireLocationInfo(context);
         location = context.location ? { type: "Point", coordinates: [context.location.latitude, context.location.longitude] } : null;
+      }
 
+      if (await Profile.count({ where: { username: args.profile.username, uid: Not(context.user.uid) }})) {
+        throw new HablaError("Username is already taken.", HablaErrorCodes.USERNAME_ALREADY_TAKEN);
       }
 
       await getConnection().transaction(async transactionalEntityManager => {
@@ -124,7 +129,7 @@ export const ProfileResolvers = {
         return true;
       } catch (error) {
         console.log(error);
-        throw new InternalServerError("Error updating expo push token.");
+        throw new HablaError("Error updating expo push token.", HablaErrorCodes.INTERNAL_SERVER_ERROR);
       }
     }
   }
